@@ -4,6 +4,7 @@ import os
 import sys
 import getopt
 import aifc
+import wave
 import numpy
 from scipy.io import wavfile
 
@@ -43,6 +44,7 @@ def fromAiffToData(filename):
 	nchannels = s.getnchannels();
 	framerate = s.getframerate();
 	strsig = s.readframes(nframes)
+	s.close()
 	#print strsig
 	y = numpy.fromstring(strsig, numpy.short).byteswap()
 	y = y.reshape(nframes,nchannels)
@@ -51,12 +53,59 @@ def fromAiffToData(filename):
 	#x = numpy.asmatrix(y)
 	return framerate, y
 
+# from https://gist.github.com/WarrenWeckesser/7461781
+def _wav2array(nchannels, sampwidth, data):
+    """data must be the string containing the bytes from the wav file."""
+    num_samples, remainder = divmod(len(data), sampwidth * nchannels)
+    if remainder > 0:
+        raise ValueError('The length of data is not a multiple of '
+                         'sampwidth * num_channels.')
+    if sampwidth > 4:
+        raise ValueError("sampwidth must not be greater than 4.")
+
+    if sampwidth == 3:
+        a = numpy.empty((num_samples, nchannels, 4), dtype=numpy.uint8)
+        raw_bytes = numpy.fromstring(data, dtype=numpy.uint8)
+        a[:, :, :sampwidth] = raw_bytes.reshape(-1, nchannels, sampwidth)
+        a[:, :, sampwidth:] = (a[:, :, sampwidth - 1:sampwidth] >> 7) * 255
+        result = a.view('<i4').reshape(a.shape[:-1])
+    else:
+        # 8 bit samples are stored as unsigned ints; others as signed ints.
+        dt_char = 'u' if sampwidth == 1 else 'i'
+        a = np.fromstring(data, dtype='<%s%d' % (dt_char, sampwidth))
+        result = a.reshape(-1, nchannels)
+    return result
+
+def readwav(file):
+    """
+    Read a wav file.
+    Returns the frame rate, sample width (in bytes) and a numpy array
+    containing the data.
+    This function does not read compressed wav files.
+    """
+    wav = wave.open(file)
+    rate = wav.getframerate()
+    nchannels = wav.getnchannels()
+    sampwidth = wav.getsampwidth()
+    nframes = wav.getnframes()
+    data = wav.readframes(nframes)
+    wav.close()
+    array = _wav2array(nchannels, sampwidth, data)
+    return rate, sampwidth, array
+
 def fromWavToData(filename):
-	fs, y = wavfile.read(filename)
-	#print y
-	print "wav", numpy.max(y[:,0]), numpy.max(y[:,1])
-	y = y.astype(float) / 2147483647
-	return fs, y
+	rate, sampwidth, array = readwav(filename)
+	array = array.astype(float) / (2**23 - 1)
+#	if filename=='HRIRs8Set/azim90elev0.wav':
+#		print array, numpy.max(array)
+	return rate, array
+
+#	fs, y = wavfile.read(filename)
+#	if filename=='HRIRs8Set/azim90elev0.wav':
+#		print y
+#	print "wav", numpy.max(y[:,0]), numpy.max(y[:,1])
+#	y = y.astype(float) / 2147483647
+#	return fs, y
 
 
 # from http://stackoverflow.com/questions/10357992/how-to-generate-audio-from-a-numpy-array
@@ -86,8 +135,8 @@ def main(argv):
 	imp_resp_files = ["azim0elev0.wav", "azim45elev0.wav", "azim90elev0.wav", "azim135elev0.wav", "azim170elev0.wav", "azim225elev0.wav", "azim270elev0.wav", "azim315elev0.wav"]
 	imp_resp_keys = [0, 45, 90, 135, 170, 225, 270, 315]
 
-	#channel_map = [45, 315, 0, -1, 90, 270]
-	channel_map = [45, -1, -1, -1, 90, -1]
+	channel_map = [45, 315, 0, -1, 90, 270]
+	#channel_map = [45, -1, -1, -1, -1, -1]
 
 	for i in range(len(imp_resp_files)):
 		fs, single_imp_data = fromWavToData(os.path.join(imp_resp_dir, imp_resp_files[i]))
@@ -116,6 +165,8 @@ def main(argv):
 	#printNonZeros(data_out)
 
 	fromDataToWav(data_out, outputfile)
+	#fromDataToWav(imp_data[90], outputfile)
+	#fromDataToWav(data, outputfile)
 
 if __name__ == "__main__":
 	main(sys.argv[1:])
