@@ -95,7 +95,7 @@ def readwav(file):
 
 def fromWavToData(filename):
 	rate, sampwidth, array = readwav(filename)
-	array = array.astype(float) / (2**15 - 1)
+	#array = array.astype(float) / (2**23 - 1)
 #	if filename=='HRIRs8Set/azim90elev0.wav':
 #		print array, numpy.max(array)
 	return rate, array
@@ -110,69 +110,26 @@ def fromWavToData(filename):
 
 # from http://stackoverflow.com/questions/10357992/how-to-generate-audio-from-a-numpy-array
 def fromDataToWav(data, filename):
-	#data = numpy.random.uniform(-1,1,44100) # 44100 random samples between -1 and 1
+	#data = np.random.uniform(-1,1,44100) # 44100 random samples between -1 and 1
 	scaled = data#numpy.int16(data/numpy.max(numpy.abs(data)) * 32767)
 	wavfile.write(filename, 44100, scaled)
 
-def convolve(data, imp_resp):
-	print numpy.max(data), numpy.max(imp_resp[:,0]), numpy.max(imp_resp[:,1])
-	l = numpy.convolve(data, imp_resp[:,0])
-	r = numpy.convolve(data, imp_resp[:,1])
-	result = numpy.vstack((l,r)).T
-	print numpy.max(result)
-	return result
-
 def main(argv):
-	numpy.set_printoptions(threshold=numpy.inf)
+	
+	directory = 'KEMAR/diffuse/elev0TWO/'
+	for fn in os.listdir(directory):
+		filename = os.path.join(directory, fn)
+		if os.path.isfile(filename) and fn[0:3] == 'H0e':
+			subfn = fn[3:6]
+			fnnew = fn[:3] + str(360 - int(subfn)).zfill(3) + fn[6:]
+			print 'making', fnnew
+			filenamenew = os.path.join(directory, fnnew)
+			rate, array = fromWavToData(filename)
+			temp = numpy.copy(array[:,0])
+			array[:,0] = array[:,1]
+			array[:,1] = temp
+			fromDataToWav(array, filenamenew)
 
-	inputfile, outputfile = fromArgsToFileNames(argv)
-	print 'opening', inputfile, '...'
-	fs, data = fromAiffToData(inputfile)
-
-
-	imp_data = {}
-
-	imp_resp_dir = "KEMAR/diffuse/elev0/" 
-	imp_resp_files = ["H0e000a.wav", "H0e030a.wav", "H0e110a.wav", "H0e250a.wav", "H0e330a.wav"]
-	imp_resp_keys = [0, 30, 110, 250, 330]
-
-	channel_map = [330, 30, 0, -1, 250, 110]
-	#channel_map = [45, 315, 0, -1, 135, 225]
-	#channel_map = [45, -1, -1, -1, -1, -1]
-
-	for i in range(len(imp_resp_files)):
-		fs, single_imp_data = fromWavToData(os.path.join(imp_resp_dir, imp_resp_files[i]))
-		imp_data[imp_resp_keys[i]] = single_imp_data
-		
-	data_out = numpy.zeros((len(data[:,0]) + len(imp_data[0][:,0]) - 1, 2))
-
-	print 'converting...'
-	for i in range(6):
-		print i, channel_map[i]
-		if channel_map[i] >= 0:
-			data_out_appendage = convolve(data[:,i], imp_data[channel_map[i]])
-			#if i==1:
-				#printNonZeros(data_out_appendage)
-		elif i==3:
-			diff = len(data_out[:,1]) - len(data[:,i])
-			data_out_appendage_atom = numpy.lib.pad(data[:,i], (0,diff), 'constant', constant_values=(0,0))
-			data_out_appendage = numpy.vstack((data_out_appendage_atom,data_out_appendage_atom)).T
-
-		data_out = numpy.add(data_out, data_out_appendage)
-
-	print 'writing to', outputfile, '...'
-
-	#print imp_data[90]
-	#print imp_data[270]
-	#print data_out[0:1000,:]
-
-	#printNonZeros(data_out)
-
-	fromDataToWav(data_out, outputfile)
-	#fromDataToWav(imp_data[90], outputfile)
-	#fromDataToWav(data, outputfile)
-
-	print 'done'
-
+	
 if __name__ == "__main__":
 	main(sys.argv[1:])
